@@ -5,12 +5,9 @@ import urllib.parse
 import random
 from datetime import datetime
 
-# ==================== تنظیمات ====================
-SUB_SOURCES_URL = "https://raw.githubusercontent.com/punez/Repo-0/refs/heads/main/inputs.txt"  # ← N را با 1،2،3 یا 4 عوض کن
-OUTPUT_FILE = "output.txt"               # اسم هماهنگ نهایی
-# بدون سقف خروجی (طبق درخواست)
-
-# =================================================
+# تنظیمات
+SUB_SOURCES_URL = "https://raw.githubusercontent.com/punez/Repo-0/refs/heads/main/inputs.txt"  # ← USERNAME و REPO-N رو برای هر ریپو عوض کن (مثلاً Repo-1)
+OUTPUT_FILE = "final.txt"  # اسم هماهنگ برای همه
 
 def log(msg):
     ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -32,7 +29,6 @@ def fetch_and_decode(url):
         r = requests.get(url.strip(), timeout=20)
         r.raise_for_status()
         content = r.text.strip()
-
         try:
             decoded = base64.b64decode(content + "===").decode("utf-8", errors="ignore")
             if "\n" in decoded or "://" in decoded:
@@ -45,26 +41,19 @@ def fetch_and_decode(url):
         return []
 
 def get_fingerprint(line):
-    """dedup بدون در نظر گرفتن SNI"""
     line = line.strip()
     if not line:
         return None
-
     try:
         if line.startswith("vmess://"):
             b64 = line[8:].split("#")[0]
             data = json.loads(base64.b64decode(b64 + "===").decode("utf-8", errors="ignore"))
             return "|".join(str(x).lower() for x in [
-                data.get("add", ""), 
-                data.get("port", ""),
-                data.get("id", ""),
-                data.get("fp", ""),
-                data.get("path", ""),
-                data.get("net", ""),
-                data.get("security", ""),
-                data.get("type", "")
+                data.get("add", ""), data.get("port", ""),
+                data.get("id", ""), data.get("fp", ""),
+                data.get("path", ""), data.get("net", ""),
+                data.get("security", ""), data.get("type", "")
             ])
-
         elif line.startswith(("vless://", "trojan://")):
             url = urllib.parse.urlparse(line.split("#")[0])
             params = urllib.parse.parse_qs(url.query)
@@ -77,25 +66,21 @@ def get_fingerprint(line):
                 params.get("type", [""])[0],
                 params.get("security", [""])[0]
             ])
-
-        else:  # ss, hy2, tuic و بقیه
+        else:
             return line.split("#")[0].lower()
-
     except:
         return line.split("#")[0].lower()
 
-# ==================== اجرای اصلی ====================
-
-log("=== Starting Process Sub (Repo 1-4) ===")
+# اجرای اصلی
+log("=== Starting Filter (Repo 1-4) ===")
 
 all_lines = []
 for sub_url in fetch_sources():
     lines = fetch_and_decode(sub_url)
     all_lines.extend(lines)
 
-log(f"Total raw lines collected: {len(all_lines)}")
+log(f"Total raw lines: {len(all_lines)}")
 
-# dedup
 seen = {}
 for line in all_lines:
     key = get_fingerprint(line)
@@ -103,9 +88,7 @@ for line in all_lines:
         seen[key] = line
 
 unique_nodes = list(seen.values())
-
-# shuffle برای تنوع
-random.shuffle(unique_nodes)
+random.shuffle(unique_nodes)  # تنوع
 
 # بدون سقف
 final_list = unique_nodes
@@ -114,4 +97,4 @@ with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
     for node in final_list:
         f.write(node + "\n")
 
-log(f"Done! Final output: {len(final_list)} nodes → {OUTPUT_FILE}")
+log(f"Done: {len(final_list)} nodes → {OUTPUT_FILE}")
