@@ -1,54 +1,117 @@
 import requests
 import base64
+import json
+import urllib.parse
+import random
+from datetime import datetime
 
-INPUT_FILE = "inputs.txt"
-OUTPUT_FILE = "output.txt"
-TIMEOUT = 10
+# ==================== تنظیمات ====================
+SUB_SOURCES_URL = "https://raw.githubusercontent.com/punez/Repo-0/refs/heads/main/inputs.txt"  # ← N را با 1،2،3 یا 4 عوض کن
+OUTPUT_FILE = "output.txt"               # اسم هماهنگ نهایی
+# بدون سقف خروجی (طبق درخواست)
 
-def fetch(url):
+# =================================================
+
+def log(msg):
+    ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    print(f"[{ts}] {msg}")
+
+def fetch_sources():
     try:
-        r = requests.get(url, timeout=TIMEOUT)
-        if r.status_code == 200:
-            return r.text.strip()
-    except:
-        pass
-    return None
+        r = requests.get(SUB_SOURCES_URL, timeout=15)
+        r.raise_for_status()
+        urls = [line.strip() for line in r.text.splitlines() if line.strip() and not line.startswith("#")]
+        log(f"Found {len(urls)} subscription URLs")
+        return urls
+    except Exception as e:
+        log(f"Error fetching sources.txt: {e}")
+        return []
 
-def try_decode(text):
+def fetch_and_decode(url):
     try:
-        if not text.startswith(("vmess://", "vless://", "trojan://")):
-            return base64.b64decode(text).decode("utf-8")
+        r = requests.get(url.strip(), timeout=20)
+        r.raise_for_status()
+        content = r.text.strip()
+
+        try:
+            decoded = base64.b64decode(content + "===").decode("utf-8", errors="ignore")
+            if "\n" in decoded or "://" in decoded:
+                return decoded.splitlines()
+        except:
+            pass
+        return content.splitlines()
+    except Exception as e:
+        log(f"Failed to fetch {url}: {e}")
+        return []
+
+def get_fingerprint(line):
+    """dedup بدون در نظر گرفتن SNI"""
+    line = line.strip()
+    if not line:
+        return None
+
+    try:
+        if line.startswith("vmess://"):
+            b64 = line[8:].split("#")[0]
+            data = json.loads(base64.b64decode(b64 + "===").decode("utf-8", errors="ignore"))
+            return "|".join(str(x).lower() for x in [
+                data.get("add", ""), 
+                data.get("port", ""),
+                data.get("id", ""),
+                data.get("fp", ""),
+                data.get("path", ""),
+                data.get("net", ""),
+                data.get("security", ""),
+                data.get("type", "")
+            ])
+
+        elif line.startswith(("vless://", "trojan://")):
+            url = urllib.parse.urlparse(line.split("#")[0])
+            params = urllib.parse.parse_qs(url.query)
+            return "|".join(str(x).lower() for x in [
+                url.hostname or "",
+                url.port or "443",
+                url.username or "",
+                params.get("fp", [""])[0],
+                params.get("path", [""])[0] or params.get("serviceName", [""])[0],
+                params.get("type", [""])[0],
+                params.get("security", [""])[0]
+            ])
+
+        else:  # ss, hy2, tuic و بقیه
+            return line.split("#")[0].lower()
+
     except:
-        pass
-    return text
+        return line.split("#")[0].lower()
 
-def extract_configs(text):
-    lines = text.split("\n")
-    valid = []
-    for l in lines:
-        l = l.strip()
-        if l.startswith(("vmess://","vless://","trojan://","ss://","ssr://","hy2://","tuic://")):
-            valid.append(l)
-    return valid
+# ==================== اجرای اصلی ====================
 
-def main():
-    final = []
+log("=== Starting Process Sub (Repo 1-4) ===")
 
-    with open(INPUT_FILE) as f:
-        sources = [line.strip() for line in f if line.strip()]
+all_lines = []
+for sub_url in fetch_sources():
+    lines = fetch_and_decode(sub_url)
+    all_lines.extend(lines)
 
-    for url in sources:
-        data = fetch(url)
-        if not data:
-            continue
-        data = try_decode(data)
-        configs = extract_configs(data)
-        final.extend(configs)
+log(f"Total raw lines collected: {len(all_lines)}")
 
-    final = list(dict.fromkeys(final))  # dedup ساده
+# dedup
+seen = {}
+for line in all_lines:
+    key = get_fingerprint(line)
+    if key and key not in seen:
+        seen[key] = line
 
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        f.write("\n".join(final))
+unique_nodes = list(seen.values())
 
-if __name__ == "__main__":
-    main()
+# shuffle برای تنوع
+random.shuffle(unique_nodes)
+
+# بدون سقف
+final_list = unique_nodes
+
+with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+    for node in final_list:
+        f.write(node + "\n")
+
+log(f"Done! Final output: {len(final_list)} nodes → {OUTPUT_FILE}")
