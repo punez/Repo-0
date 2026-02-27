@@ -1,0 +1,33 @@
+name: V2 Collector
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"   # هر 6 ساعت اجرا
+  workflow_dispatch:        # اجرای دستی هم فعال
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Requirements
+        run: pip install requests
+
+      - name: Run Collector
+        run: python collector.py
+
+      - name: Commit Output
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add output/
+          git commit -m "Update subscription" || echo "No changes"
+          git push
