@@ -1,9 +1,9 @@
-name: V2 Collector
+name: V2
 
 on:
   schedule:
-    - cron: "0 */6 * * *"   # هر 6 ساعت اجرا
-  workflow_dispatch:        # اجرای دستی هم فعال
+    - cron: "30 2 * * *"   # 06:00 AM Iran time (UTC+3:30)
+  workflow_dispatch:
 
 jobs:
   build:
@@ -29,5 +29,5 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add output/
-          git commit -m "Update subscription" || echo "No changes"
+          git commit -m "Daily update" || echo "No changes"
           git push
