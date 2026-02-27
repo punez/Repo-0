@@ -1,100 +1,150 @@
+import os
 import requests
 import base64
 import json
 import urllib.parse
 import random
-from datetime import datetime
 
-# تنظیمات
-SUB_SOURCES_URL = "https://raw.githubusercontent.com/punez/Repo-0/refs/heads/main/inputs.txt"  # ← USERNAME و REPO-N رو برای هر ریپو عوض کن (مثلاً Repo-1)
-OUTPUT_FILE = "final.txt"  # اسم هماهنگ برای همه
+# =======================
+# ⚙️ تنظیمات
+# =======================
 
-def log(msg):
-    ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-    print(f"[{ts}] {msg}")
+INPUT_FOLDER = "inputs"      # پوشه ورودی (داخلش txt ها هست)
+OUTPUT_FOLDER = "output"      # پوشه خروجی
+OUTPUT_NAME = "final.txt"     # اسم فایل خروجی
+TIMEOUT = 20
+MAX_DECODE_DEPTH = 5
 
-def fetch_sources():
+# =======================
+# ابزارها
+# =======================
+
+def ensure_dirs():
+    os.makedirs(INPUT_FOLDER, exist_ok=True)
+    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
+def fetch(url):
     try:
-        r = requests.get(SUB_SOURCES_URL, timeout=15)
+        r = requests.get(url.strip(), timeout=TIMEOUT)
         r.raise_for_status()
-        urls = [line.strip() for line in r.text.splitlines() if line.strip() and not line.startswith("#")]
-        log(f"Found {len(urls)} subscription URLs")
-        return urls
-    except Exception as e:
-        log(f"Error fetching sources.txt: {e}")
-        return []
+        return r.text.strip()
+    except:
+        return None
 
-def fetch_and_decode(url):
-    try:
-        r = requests.get(url.strip(), timeout=20)
-        r.raise_for_status()
-        content = r.text.strip()
+def smart_decode(text):
+    """
+    هرچی بیس64 چندلایه باشه decode می‌کنه
+    اگر raw باشه همون رو برمی‌گردونه
+    """
+    for _ in range(MAX_DECODE_DEPTH):
         try:
-            decoded = base64.b64decode(content + "===").decode("utf-8", errors="ignore")
-            if "\n" in decoded or "://" in decoded:
-                return decoded.splitlines()
+            decoded = base64.b64decode(text + "===").decode("utf-8", errors="ignore")
+            if "://" in decoded or "\n" in decoded:
+                text = decoded.strip()
+            else:
+                break
         except:
-            pass
-        return content.splitlines()
-    except Exception as e:
-        log(f"Failed to fetch {url}: {e}")
-        return []
+            break
+    return text
+
+def extract_configs(text):
+    lines = text.splitlines()
+    valid = []
+    for line in lines:
+        line = line.strip()
+        if line.startswith((
+            "vmess://",
+            "vless://",
+            "trojan://",
+            "ss://",
+            "ssr://",
+            "hy2://",
+            "tuic://"
+        )):
+            valid.append(line)
+    return valid
 
 def get_fingerprint(line):
-    line = line.strip()
-    if not line:
-        return None
+    """
+    حذف تکراری حرفه‌ای
+    """
     try:
+        line = line.strip()
         if line.startswith("vmess://"):
-            b64 = line[8:].split("#")[0]
-            data = json.loads(base64.b64decode(b64 + "===").decode("utf-8", errors="ignore"))
-            return "|".join(str(x).lower() for x in [
-                data.get("add", ""), data.get("port", ""),
-                data.get("id", ""), data.get("fp", ""),
-                data.get("path", ""), data.get("net", ""),
-                data.get("security", ""), data.get("type", "")
+            raw = line[8:].split("#")[0]
+            data = json.loads(base64.b64decode(raw + "===").decode("utf-8", errors="ignore"))
+            return "|".join(str(data.get(k,"")).lower() for k in [
+                "add","port","id","net","path","type","security"
             ])
-        elif line.startswith(("vless://", "trojan://")):
-            url = urllib.parse.urlparse(line.split("#")[0])
-            params = urllib.parse.parse_qs(url.query)
+        elif line.startswith(("vless://","trojan://")):
+            u = urllib.parse.urlparse(line.split("#")[0])
+            q = urllib.parse.parse_qs(u.query)
             return "|".join(str(x).lower() for x in [
-                url.hostname or "",
-                url.port or "443",
-                url.username or "",
-                params.get("fp", [""])[0],
-                params.get("path", [""])[0] or params.get("serviceName", [""])[0],
-                params.get("type", [""])[0],
-                params.get("security", [""])[0]
+                u.hostname or "",
+                u.port or "443",
+                u.username or "",
+                q.get("type",[""])[0],
+                q.get("security",[""])[0],
+                q.get("path",[""])[0]
             ])
         else:
             return line.split("#")[0].lower()
     except:
         return line.split("#")[0].lower()
 
+# =======================
 # اجرای اصلی
-log("=== Starting Filter (Repo 1-4) ===")
+# =======================
 
-all_lines = []
-for sub_url in fetch_sources():
-    lines = fetch_and_decode(sub_url)
-    all_lines.extend(lines)
+def main():
 
-log(f"Total raw lines: {len(all_lines)}")
+    ensure_dirs()
 
-seen = {}
-for line in all_lines:
-    key = get_fingerprint(line)
-    if key and key not in seen:
-        seen[key] = line
+    all_urls = []
 
-unique_nodes = list(seen.values())
-random.shuffle(unique_nodes)  # تنوع
+    # خواندن تمام txt های داخل پوشه
+    for file in os.listdir(INPUT_FOLDER):
+        if file.endswith(".txt"):
+            with open(os.path.join(INPUT_FOLDER, file), encoding="utf-8") as f:
+                for line in f:
+                    line=line.strip()
+                    if line and not line.startswith("#"):
+                        all_urls.append(line)
 
-# بدون سقف
-final_list = unique_nodes
+    print(f"Loaded {len(all_urls)} subscription URLs")
 
-with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-    for node in final_list:
-        f.write(node + "\n")
+    collected = []
 
-log(f"Done: {len(final_list)} nodes → {OUTPUT_FILE}")
+    for url in all_urls:
+        data = fetch(url)
+        if not data:
+            continue
+
+        decoded = smart_decode(data)
+        configs = extract_configs(decoded)
+        collected.extend(configs)
+
+    print(f"Raw configs: {len(collected)}")
+
+    # حذف تکراری
+    seen = {}
+    for c in collected:
+        key = get_fingerprint(c)
+        if key and key not in seen:
+            seen[key] = c
+
+    final = list(seen.values())
+
+    random.shuffle(final)
+
+    print(f"Unique configs: {len(final)}")
+
+    output_path = os.path.join(OUTPUT_FOLDER, OUTPUT_NAME)
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(final))
+
+    print("Done ✔")
+
+
+if __name__ == "__main__":
+    main()
