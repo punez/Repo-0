@@ -9,7 +9,7 @@ import random
 # ⚙️ تنظیمات
 # =======================
 
-INPUT_FOLDER = "inputs"      # پوشه ورودی (داخلش txt ها هست)
+INPUT_FOLDER = "inputs.txt"      # پوشه ورودی (داخلش txt ها هست)
 OUTPUT_FOLDER = "output"      # پوشه خروجی
 OUTPUT_NAME = "final.txt"     # اسم فایل خروجی
 TIMEOUT = 20
